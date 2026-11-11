@@ -1,0 +1,11 @@
+# Add project specific R8 rules here.
+# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+#
+# For more details, see
+#   https://d.android.com/r/tools/r8/keep-rules
+
+# Keep DeviceAdminReceiver and NTP models from R8 shrinking/obfuscation in release builds
+-keep public class * extends android.app.admin.DeviceAdminReceiver
+-keepclassmembers class * extends android.app.admin.DeviceAdminReceiver {
+    <init>();
+}

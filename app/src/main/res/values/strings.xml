@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">NTPClock</string>
+    <string name="device_admin_label">NTPClock Device Policy Controller</string>
+    <string name="device_admin_description">Cho phép đồng bộ hóa thời gian và múi giờ hệ thống từ máy chủ NTP nội bộ với vai trò Device Owner.</string>
+</resources>
