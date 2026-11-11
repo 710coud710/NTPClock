@@ -8,10 +8,22 @@ import com.example.ntpclock.admin.SetTimeOutcome
 import com.example.ntpclock.admin.SystemClockController
 import com.example.ntpclock.core.network.NetworkMonitor
 import com.example.ntpclock.core.time.ClockProvider
+import com.example.ntpclock.domain.model.NtpSettings
+import com.example.ntpclock.domain.model.SyncHistoryRecord
+import com.example.ntpclock.domain.model.SyncTriggerSource
+import com.example.ntpclock.domain.repository.SettingsRepository
+import com.example.ntpclock.domain.repository.SyncHistoryRepository
+import com.example.ntpclock.domain.usecase.QueryNtpTimeUseCase
+import com.example.ntpclock.domain.usecase.VerifyClockSyncUseCase
 import com.example.ntpclock.ntp.NtpClient
 import com.example.ntpclock.ntp.NtpQueryConfig
 import com.example.ntpclock.ntp.NtpQueryOutcome
 import com.example.ntpclock.ntp.NtpSample
+import com.example.ntpclock.ntp.NtpSampleSelector
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -19,24 +31,29 @@ import org.junit.Test
 class NtpSyncCoordinatorTest {
 
     @Test
-    fun `syncAndApplyClock returns CLOCK_SYNC_DENIED when not device owner`() = runTest {
-        val coordinator = createCoordinator(isDeviceOwner = false)
-        val result = coordinator.syncAndApplyClock(NtpQueryConfig())
+    fun `syncAndApplyClock returns CLOCK_SYNC_DENIED and records history when not device owner`() = runTest {
+        val historyRepo = FakeSyncHistoryRepository()
+        val coordinator = createCoordinator(isDeviceOwner = false, historyRepo = historyRepo)
+
+        val result = coordinator.syncAndApplyClock(SyncTriggerSource.MANUAL)
         assertEquals(SyncStatus.CLOCK_SYNC_DENIED, result.status)
+        assertEquals(1, historyRepo.records.size)
+        assertEquals(SyncStatus.CLOCK_SYNC_DENIED, historyRepo.records.first().status)
     }
 
     @Test
     fun `syncAndApplyClock returns CLOCK_SYNC_DENIED when auto time is enabled`() = runTest {
         val coordinator = createCoordinator(isDeviceOwner = true, autoTimeEnabled = true)
-        val result = coordinator.syncAndApplyClock(NtpQueryConfig())
+        val result = coordinator.syncAndApplyClock(SyncTriggerSource.MANUAL)
         assertEquals(SyncStatus.CLOCK_SYNC_DENIED, result.status)
     }
 
     @Test
     fun `syncAndApplyClock returns NTP_FAILED when network is disconnected`() = runTest {
         val coordinator = createCoordinator(lanConnected = false)
-        val result = coordinator.syncAndApplyClock(NtpQueryConfig())
+        val result = coordinator.syncAndApplyClock(SyncTriggerSource.PERIODIC_WORK)
         assertEquals(SyncStatus.NTP_FAILED, result.status)
+        assertEquals(SyncTriggerSource.PERIODIC_WORK, result.triggerSource)
     }
 
     @Test
@@ -46,6 +63,7 @@ class NtpSyncCoordinatorTest {
             elapsedNanos = 1_000_000_000L,
         )
         val controller = FakeSystemClockController(clock = clock, autoTimeEnabled = false)
+        val historyRepo = FakeSyncHistoryRepository()
         val sample = NtpSample(
             serverHost = "192.168.4.2",
             serverPort = 123,
@@ -68,14 +86,19 @@ class NtpSyncCoordinatorTest {
             networkMonitor = FakeNetworkMonitor(true),
             deviceOwnerManager = FakeDeviceOwnerManager(true),
             systemClockController = controller,
-            ntpClient = FakeNtpClient(NtpQueryOutcome.Success(sample)),
+            queryNtpTimeUseCase = QueryNtpTimeUseCase(NtpSampleSelector(FakeNtpClient(NtpQueryOutcome.Success(sample)))),
+            verifyClockSyncUseCase = VerifyClockSyncUseCase(clock),
+            settingsRepository = FakeSettingsRepository(NtpSettings(sampleCount = 1, sampleIntervalMs = 0L)),
+            historyRepository = historyRepo,
             clockProvider = clock,
         )
 
-        val result = coordinator.syncAndApplyClock(NtpQueryConfig())
+        val result = coordinator.syncAndApplyClock(SyncTriggerSource.MANUAL)
         assertEquals(SyncStatus.CLOCK_SYNC_SUCCESS, result.status)
         assertEquals(1_794_380_300_036L, controller.lastSetTimeMillis)
         assertEquals(0L, result.postSyncDiffMillis)
+        assertEquals(1, historyRepo.records.size)
+        assertEquals(true, historyRepo.records.first().apiSuccess)
     }
 
     @Test
@@ -109,11 +132,14 @@ class NtpSyncCoordinatorTest {
             networkMonitor = FakeNetworkMonitor(true),
             deviceOwnerManager = FakeDeviceOwnerManager(true),
             systemClockController = controller,
-            ntpClient = FakeNtpClient(NtpQueryOutcome.Success(sample)),
+            queryNtpTimeUseCase = QueryNtpTimeUseCase(NtpSampleSelector(FakeNtpClient(NtpQueryOutcome.Success(sample)))),
+            verifyClockSyncUseCase = VerifyClockSyncUseCase(clock),
+            settingsRepository = FakeSettingsRepository(NtpSettings(sampleCount = 1, sampleIntervalMs = 0L)),
+            historyRepository = FakeSyncHistoryRepository(),
             clockProvider = clock,
         )
 
-        val result = coordinator.syncAndApplyClock(NtpQueryConfig())
+        val result = coordinator.syncAndApplyClock(SyncTriggerSource.MANUAL)
         assertEquals(SyncStatus.CLOCK_SYNC_VERIFY_FAILED, result.status)
     }
 
@@ -121,13 +147,17 @@ class NtpSyncCoordinatorTest {
         lanConnected: Boolean = true,
         isDeviceOwner: Boolean = true,
         autoTimeEnabled: Boolean = false,
+        historyRepo: FakeSyncHistoryRepository = FakeSyncHistoryRepository(),
     ): NtpSyncCoordinator {
         val clock = FakeClockProvider(1_794_380_000_000L, 1_000_000_000L)
         return NtpSyncCoordinator(
             networkMonitor = FakeNetworkMonitor(lanConnected),
             deviceOwnerManager = FakeDeviceOwnerManager(isDeviceOwner),
             systemClockController = FakeSystemClockController(clock, autoTimeEnabled),
-            ntpClient = FakeNtpClient(NtpQueryOutcome.Failure("unused")),
+            queryNtpTimeUseCase = QueryNtpTimeUseCase(NtpSampleSelector(FakeNtpClient(NtpQueryOutcome.Failure("unused")))),
+            verifyClockSyncUseCase = VerifyClockSyncUseCase(clock),
+            settingsRepository = FakeSettingsRepository(NtpSettings(sampleCount = 1, sampleIntervalMs = 0L)),
+            historyRepository = historyRepo,
             clockProvider = clock,
         )
     }
@@ -142,6 +172,7 @@ class NtpSyncCoordinatorTest {
 
     private class FakeNetworkMonitor(private val connected: Boolean) : NetworkMonitor {
         override fun isLocalNetworkConnected(): Boolean = connected
+        override fun observeLocalNetworkConnected(): Flow<Boolean> = flowOf(connected)
     }
 
     private class FakeDeviceOwnerManager(private val deviceOwner: Boolean) : DeviceOwnerManager {
@@ -182,5 +213,28 @@ class NtpSyncCoordinatorTest {
     private class FakeNtpClient(private val outcome: NtpQueryOutcome) : NtpClient {
         override suspend fun query(config: NtpQueryConfig): NtpQueryOutcome = outcome
     }
-}
 
+    private class FakeSettingsRepository(initial: NtpSettings) : SettingsRepository {
+        private val state = MutableStateFlow(initial)
+        override val settings: Flow<NtpSettings> = state
+        override suspend fun getCurrentSettings(): NtpSettings = state.value
+        override suspend fun updateSettings(transform: (NtpSettings) -> NtpSettings) {
+            state.value = transform(state.value)
+        }
+        override suspend fun resetDefaults() {
+            state.value = NtpSettings()
+        }
+    }
+
+    private class FakeSyncHistoryRepository : SyncHistoryRepository {
+        val records = mutableListOf<SyncHistoryRecord>()
+        override fun observeHistory(limit: Int): Flow<List<SyncHistoryRecord>> = emptyFlow()
+        override fun observeLatestSuccessfulSync(): Flow<SyncHistoryRecord?> = emptyFlow()
+        override suspend fun insertRecord(record: SyncHistoryRecord) {
+            records.add(0, record)
+        }
+        override suspend fun clearAll() {
+            records.clear()
+        }
+    }
+}

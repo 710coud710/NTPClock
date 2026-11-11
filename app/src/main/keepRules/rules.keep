@@ -1,11 +1,11 @@
-# Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
-#
-# For more details, see
-#   https://d.android.com/r/tools/r8/keep-rules
-
-# Keep DeviceAdminReceiver and NTP models from R8 shrinking/obfuscation in release builds
+# Keep DeviceAdminReceiver, BootReceiver, WorkManager Worker and Room Entities in release builds
 -keep public class * extends android.app.admin.DeviceAdminReceiver
 -keepclassmembers class * extends android.app.admin.DeviceAdminReceiver {
     <init>();
 }
+-keep public class * extends android.content.BroadcastReceiver
+-keep public class * extends androidx.work.ListenableWorker
+-keepclassmembers class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class com.example.ntpclock.data.local.** { *; }
