@@ -7,6 +7,9 @@ import com.example.ntpclock.sync.SyncExecutionResult
 data class DashboardUiState(
     val currentSystemTimeText: String = "--:--:--",
     val currentMillisText: String = ".---",
+    val currentNtpTimeText: String? = null,
+    val currentNtpMillisText: String? = null,
+    val ntpOffsetMillis: Long? = null,
     val currentDateText: String = "--/--/----",
     val currentTimezoneId: String = "",
     val isTargetTimezone: Boolean = false,
@@ -20,4 +23,3 @@ data class DashboardUiState(
     val periodicWorkStateText: String = "Chưa lập lịch",
     val isBusy: Boolean = false,
 )
-

@@ -2,21 +2,21 @@ package com.example.ntpclock.presentation.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -27,8 +27,6 @@ import androidx.navigation.compose.rememberNavController
 import com.example.ntpclock.AppContainer
 import com.example.ntpclock.presentation.dashboard.DashboardScreen
 import com.example.ntpclock.presentation.dashboard.DashboardViewModel
-import com.example.ntpclock.presentation.diagnostics.DiagnosticsScreen
-import com.example.ntpclock.presentation.diagnostics.DiagnosticsViewModel
 import com.example.ntpclock.presentation.history.HistoryScreen
 import com.example.ntpclock.presentation.history.HistoryViewModel
 import com.example.ntpclock.presentation.settings.SettingsScreen
@@ -39,13 +37,11 @@ enum class AppDestination(
     val label: String,
     val icon: ImageVector,
 ) {
-    Dashboard("dashboard", "Tổng quan", Icons.Filled.Schedule),
+    Dashboard("dashboard", "Đồng bộ", Icons.Filled.Sync),
     History("history", "Lịch sử", Icons.Filled.History),
-    Diagnostics("diagnostics", "Kiểm tra", Icons.Filled.Build),
     Settings("settings", "Cài đặt", Icons.Filled.Settings),
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NtpClockApp(
     container: AppContainer,
@@ -57,16 +53,15 @@ fun NtpClockApp(
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("NTPClock") },
-            )
-        },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = Color(0xFFF8FAFC),
+                tonalElevation = 0.dp,
+            ) {
                 AppDestination.entries.forEach { destination ->
+                    val selected = currentRoute == destination.route
                     NavigationBarItem(
-                        selected = currentRoute == destination.route,
+                        selected = selected,
                         onClick = {
                             navController.navigate(destination.route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
@@ -78,6 +73,13 @@ fun NtpClockApp(
                         },
                         icon = { Icon(destination.icon, contentDescription = destination.label) },
                         label = { Text(destination.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF2563EB),
+                            selectedTextColor = Color(0xFF2563EB),
+                            indicatorColor = Color(0xFFEFF6FF),
+                            unselectedIconColor = Color(0xFF64748B),
+                            unselectedTextColor = Color(0xFF64748B),
+                        ),
                     )
                 }
             }
@@ -96,8 +98,8 @@ fun NtpClockApp(
                     onSyncNowClick = vm::syncNow,
                     onTestNtpClick = vm::testNtpReadOnly,
                     onRefreshClick = vm::refreshPolicyStatus,
-                    onOpenDiagnosticsClick = {
-                        navController.navigate(AppDestination.Diagnostics.route) {
+                    onOpenSettingsClick = {
+                        navController.navigate(AppDestination.Settings.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
                             }
@@ -113,18 +115,7 @@ fun NtpClockApp(
                 HistoryScreen(
                     uiState = state,
                     onClearHistoryClick = vm::clearHistory,
-                )
-            }
-            composable(AppDestination.Diagnostics.route) {
-                val vm: DiagnosticsViewModel = viewModel(factory = DiagnosticsViewModel.factory(container))
-                val state by vm.uiState.collectAsStateWithLifecycle()
-                DiagnosticsScreen(
-                    uiState = state,
-                    onRefreshClick = { vm.refreshStatus(logEvent = true) },
-                    onDisableAutoTimeClick = vm::disableAutoTime,
-                    onApplyTimezoneClick = vm::applyTargetTimezone,
-                    onEnqueueWorkerClick = vm::enqueueImmediateWorkerSync,
-                    onClearLogsClick = vm::clearLogs,
+                    onFilterSelect = vm::setFilter,
                 )
             }
             composable(AppDestination.Settings.route) {
@@ -132,7 +123,9 @@ fun NtpClockApp(
                 val state by vm.uiState.collectAsStateWithLifecycle()
                 SettingsScreen(
                     uiState = state,
-                    onToggleAdminUnlock = vm::toggleAdminUnlock,
+                    onRefreshPolicyClick = vm::refreshPolicyStatus,
+                    onDisableAutoTimeClick = vm::disableAutoTime,
+                    onApplyTimezoneClick = vm::applyTargetTimezone,
                     onHostChange = vm::onHostChange,
                     onPortChange = vm::onPortChange,
                     onTimeZoneChange = vm::onTimeZoneChange,
@@ -143,11 +136,12 @@ fun NtpClockApp(
                     onMaxOffsetChange = vm::onMaxOffsetChange,
                     onAutoSyncToggle = vm::onAutoSyncToggle,
                     onSyncOnBootToggle = vm::onSyncOnBootToggle,
-                    onSaveClick = vm::saveSettings,
+                    onSaveClick = vm::requestSaveConfirmation,
+                    onDismissSaveConfirm = vm::dismissSaveConfirmation,
+                    onConfirmSave = vm::confirmSaveSettings,
                     onResetDefaultsClick = vm::resetDefaults,
                 )
             }
         }
     }
 }
-
