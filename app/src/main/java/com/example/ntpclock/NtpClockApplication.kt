@@ -23,6 +23,7 @@ import com.example.ntpclock.domain.usecase.VerifyClockSyncUseCase
 import com.example.ntpclock.ntp.NtpClient
 import com.example.ntpclock.ntp.NtpSampleSelector
 import com.example.ntpclock.ntp.UdpNtpClient
+import com.example.ntpclock.service.NtpForegroundService
 import com.example.ntpclock.sync.NtpSyncCoordinator
 import com.example.ntpclock.worker.SyncWorkScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -33,7 +34,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 class AppContainer(context: Context) {
-    private val appContext = context.applicationContext
+    val appContext: Context = context.applicationContext
 
     val clockProvider: ClockProvider = SystemClockProvider()
     val timeZoneManager: TimeZoneManager = TimeZoneManager()
@@ -79,7 +80,7 @@ class NtpClockApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
 
-        // Keep WorkManager schedule aligned with DataStore settings.
+        // Keep Foreground Service & WorkManager schedule aligned with DataStore settings.
         applicationScope.launch {
             container.settingsRepository.settings
                 .distinctUntilChanged { old, new ->
@@ -88,8 +89,10 @@ class NtpClockApplication : Application() {
                 }
                 .collect { settings ->
                     if (settings.autoSyncEnabled) {
+                        NtpForegroundService.startService(this@NtpClockApplication)
                         container.syncWorkScheduler.schedulePeriodicSync(settings.syncIntervalMinutes)
                     } else {
+                        NtpForegroundService.stopService(this@NtpClockApplication)
                         container.syncWorkScheduler.cancelPeriodicSync()
                     }
                 }

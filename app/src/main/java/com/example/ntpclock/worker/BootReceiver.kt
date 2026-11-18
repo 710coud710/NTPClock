@@ -15,7 +15,14 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
-        if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) {
+        val validActions = setOf(
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_LOCKED_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            "android.intent.action.QUICKBOOT_POWERON",
+            "com.htc.intent.action.QUICKBOOT_POWERON"
+        )
+        if (action !in validActions) {
             return
         }
 
@@ -25,6 +32,7 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 val settings = app.container.settingsRepository.getCurrentSettings()
                 if (settings.autoSyncEnabled) {
+                    com.example.ntpclock.service.NtpForegroundService.startService(app)
                     app.container.syncWorkScheduler.schedulePeriodicSync(settings.syncIntervalMinutes)
                 }
                 if (settings.syncOnBootEnabled) {

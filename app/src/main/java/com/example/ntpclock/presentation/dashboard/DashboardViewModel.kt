@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.ntpclock.AppContainer
 import com.example.ntpclock.domain.model.SyncTriggerSource
+import com.example.ntpclock.service.NtpForegroundService
 import com.example.ntpclock.sync.SyncStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,8 +31,8 @@ class DashboardViewModel(
 
     private fun autoCheckNtpOnLaunch() {
         viewModelScope.launch {
-            // Tự động kiểm tra NTP đọc ghi nhận giờ chuẩn ngay khi mở ứng dụng
-            testNtpReadOnly()
+            // Tự động kiểm tra NTP đọc ghi nhận giờ chuẩn ngay khi mở ứng dụng (không hiện banner kết quả)
+            testNtpReadOnly(isUserAction = false)
         }
     }
 
@@ -45,38 +46,37 @@ class DashboardViewModel(
                 val millisPart = if (dotIndex > 0) full.substring(dotIndex) else ""
 
                 val lastResult = _uiState.value.lastSyncResult
-                val activeOffset: Long? = run {
-                    if (lastResult != null) {
-                        when (lastResult.status) {
-                            // Khi đã đồng bộ thành công vào System Clock, giờ thiết bị ĐÃ bằng giờ NTP.
-                            // Do đó độ lệch thời gian thực tế lúc này chỉ còn là chênh lệch hậu kiểm (~0ms),
-                            // không cộng đồn độ lệch trước khi đồng bộ nữa.
-                            SyncStatus.CLOCK_SYNC_SUCCESS -> lastResult.postSyncDiffMillis ?: 0L
-                            SyncStatus.NTP_SUCCESS -> lastResult.sample?.offsetMillis
-                            else -> null
-                        }
-                    } else {
-                        _uiState.value.latestSuccessfulSync?.let { record ->
-                            when {
-                                record.status == SyncStatus.CLOCK_SYNC_SUCCESS || record.afterEpochMillis != null -> {
-                                    record.postSyncDiffMillis ?: 0L
-                                }
-                                record.status == SyncStatus.NTP_SUCCESS -> record.offsetMillis
-                                else -> null
-                            }
+                val sample = lastResult?.sample
+                val currentElapsedNanos = container.clockProvider.elapsedRealtimeNanos()
+
+                val (ntpTimePart, ntpMillisPart, calculatedOffset) = when {
+                    sample != null -> {
+                        // Tính toán giờ NTP chuẩn dựa trên Monotonic Clock (elapsedRealtimeNanos).
+                        // Giờ NTP này ĐỘC LẬP HOÀN TOÀN với việc giờ thiết bị (System.currentTimeMillis)
+                        // bị người dùng thay đổi thủ công trong Cài đặt hệ thống.
+                        val elapsedSinceT4Ms = (currentElapsedNanos - sample.t4ElapsedNanos).coerceAtLeast(0L) / 1_000_000L
+                        val trueNtpTimeNow = sample.estimatedServerTimeAtT4Millis + elapsedSinceT4Ms
+                        val ntpFull = container.timeZoneManager.formatTime(trueNtpTimeNow)
+                        val dotIndexNtp = ntpFull.indexOf('.')
+                        val timeNtp = if (dotIndexNtp > 0) ntpFull.substring(0, dotIndexNtp) else ntpFull
+                        val millisNtp = if (dotIndexNtp > 0) ntpFull.substring(dotIndexNtp) else ""
+                        val currentOffset = trueNtpTimeNow - now
+                        Triple(timeNtp, millisNtp, currentOffset)
+                    }
+                    else -> {
+                        val fallbackRecord = _uiState.value.latestSuccessfulSync
+                        val offset = fallbackRecord?.offsetMillis
+                        if (offset != null) {
+                            val ntpNow = now + offset
+                            val ntpFull = container.timeZoneManager.formatTime(ntpNow)
+                            val dotIndexNtp = ntpFull.indexOf('.')
+                            val timeNtp = if (dotIndexNtp > 0) ntpFull.substring(0, dotIndexNtp) else ntpFull
+                            val millisNtp = if (dotIndexNtp > 0) ntpFull.substring(dotIndexNtp) else ""
+                            Triple(timeNtp, millisNtp, offset)
+                        } else {
+                            Triple(null, null, null)
                         }
                     }
-                }
-
-                val (ntpTimePart, ntpMillisPart) = if (activeOffset != null) {
-                    val ntpNow = now + activeOffset
-                    val ntpFull = container.timeZoneManager.formatTime(ntpNow)
-                    val dotIndexNtp = ntpFull.indexOf('.')
-                    val timeNtp = if (dotIndexNtp > 0) ntpFull.substring(0, dotIndexNtp) else ntpFull
-                    val millisNtp = if (dotIndexNtp > 0) ntpFull.substring(dotIndexNtp) else ""
-                    Pair(timeNtp, millisNtp)
-                } else {
-                    Pair(null, null)
                 }
 
                 _uiState.update { state ->
@@ -85,7 +85,7 @@ class DashboardViewModel(
                         currentMillisText = millisPart,
                         currentNtpTimeText = ntpTimePart,
                         currentNtpMillisText = ntpMillisPart,
-                        ntpOffsetMillis = activeOffset,
+                        ntpOffsetMillis = calculatedOffset,
                         currentDateText = container.timeZoneManager.formatDate(now),
                         currentTimezoneId = container.timeZoneManager.currentTimeZoneId(),
                         isTargetTimezone = container.timeZoneManager.isTargetTimeZone(),
@@ -140,7 +140,10 @@ class DashboardViewModel(
             _uiState.update { it.copy(isBusy = true) }
             try {
                 val result = container.syncCoordinator.syncAndApplyClock(SyncTriggerSource.MANUAL)
-                _uiState.update { it.copy(lastSyncResult = result) }
+                _uiState.update { it.copy(lastSyncResult = result, showResultBanner = true) }
+                if (_uiState.value.settings.autoSyncEnabled) {
+                    NtpForegroundService.triggerSyncNow(container.appContext)
+                }
             } finally {
                 _uiState.update { it.copy(isBusy = false) }
                 refreshPolicyStatus()
@@ -148,13 +151,13 @@ class DashboardViewModel(
         }
     }
 
-    fun testNtpReadOnly() {
+    fun testNtpReadOnly(isUserAction: Boolean = true) {
         if (_uiState.value.isBusy) return
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
                 val result = container.syncCoordinator.queryNtpOnly()
-                _uiState.update { it.copy(lastSyncResult = result) }
+                _uiState.update { it.copy(lastSyncResult = result, showResultBanner = isUserAction) }
             } finally {
                 _uiState.update { it.copy(isBusy = false) }
                 refreshPolicyStatus()

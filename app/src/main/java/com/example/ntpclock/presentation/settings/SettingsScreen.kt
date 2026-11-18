@@ -58,6 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.example.ntpclock.core.common.VendorOptimizationHelper
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -130,6 +132,12 @@ fun SettingsScreen(
     onResetDefaultsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val isIgnoringBattery = remember(uiState) {
+        VendorOptimizationHelper.isIgnoringBatteryOptimizations(context)
+    }
+    val vendorBrand = remember { VendorOptimizationHelper.getVendorBrandName() }
+
     if (uiState.showSaveConfirmDialog) {
         AlertDialog(
             onDismissRequest = onDismissSaveConfirm,
@@ -632,6 +640,85 @@ fun SettingsScreen(
                             checkedTrackColor = Color(0xFF2563EB),
                         ),
                     )
+                }
+            }
+        }
+
+        // CARD 5: Tối ưu hóa ngầm cho hãng máy (Samsung, Xiaomi/Redmi, Lenovo, Asus...)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = "Tối ưu ngầm ($vendorBrand)",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                        fontSize = 18.sp,
+                    ),
+                )
+
+                Text(
+                    text = if (vendorBrand.contains("Xiaomi") || vendorBrand.contains("Redmi")) {
+                        "Lưu ý cho Redmi Pad / Xiaomi: Bấm 'Tắt tối ưu pin' -> chọn 'Không hạn chế'. (Trên Redmi Pad, hệ điều hành Xiaomi loại bỏ menu Tự khởi chạy nên chỉ cần tắt tối ưu pin là đã hoạt động ngầm 100%)."
+                    } else {
+                        "Đảm bảo ứng dụng tự động cập nhật giờ chính xác ngay cả khi tắt app hoặc khoá màn hình trên các dòng máy Samsung, Redmi, Lenovo, Asus..."
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = Color(0xFF64748B),
+                        fontSize = 13.sp,
+                    ),
+                )
+
+                SettingStatusRow(
+                    label = "Tắt tối ưu hóa pin",
+                    valueText = if (isIgnoringBattery) "● Đã tắt (Khuyên dùng)" else "Bật (Có thể bị kill)",
+                    isSuccess = isIgnoringBattery,
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { VendorOptimizationHelper.requestIgnoreBatteryOptimizations(context) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB)),
+                    ) {
+                        Text(
+                            text = "Tắt tối ưu pin",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                            ),
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { VendorOptimizationHelper.openVendorAutostartSettings(context) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB)),
+                    ) {
+                        Text(
+                            text = "Cài đặt Autostart",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                            ),
+                        )
+                    }
                 }
             }
         }

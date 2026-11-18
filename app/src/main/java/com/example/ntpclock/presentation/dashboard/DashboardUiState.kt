@@ -20,6 +20,7 @@ data class DashboardUiState(
     val receiverComponentName: String = "",
     val latestSuccessfulSync: SyncHistoryRecord? = null,
     val lastSyncResult: SyncExecutionResult? = null,
+    val showResultBanner: Boolean = false,
     val periodicWorkStateText: String = "Chưa lập lịch",
     val isBusy: Boolean = false,
 )

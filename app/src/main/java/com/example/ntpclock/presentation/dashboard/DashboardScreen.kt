@@ -1,6 +1,5 @@
 package com.example.ntpclock.presentation.dashboard
 
-import android.hardware.lights.Light
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,12 +46,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ntpclock.core.common.VendorOptimizationHelper
 import com.example.ntpclock.core.time.TimeZoneManager
 import com.example.ntpclock.presentation.components.NtpClockHeader
+import com.example.ntpclock.sync.SyncStatus
+import kotlin.math.abs
 
 @Composable
 fun DashboardScreen(
@@ -63,6 +67,7 @@ fun DashboardScreen(
     onOpenSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val timeZoneManager = remember { TimeZoneManager() }
 
     Column(
@@ -231,7 +236,7 @@ fun DashboardScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF619DC6)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column(
@@ -239,24 +244,49 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Smartphone,
-                        contentDescription = null,
-                        tint = Color(0xFF3B82F6),
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Text(
-                        text = "GIỜ THIẾT BỊ",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF3B82F6),
-                            fontSize = 12.sp,
-                            letterSpacing = 0.8.sp,
-                        ),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Smartphone,
+                            contentDescription = null,
+                            tint = Color(0xFF3B82F6),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            text = "GIỜ THIẾT BỊ",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF3B82F6),
+                                fontSize = 12.sp,
+                                letterSpacing = 0.8.sp,
+                            ),
+                        )
+                    }
+
+                    // Badge hiển thị độ lệch giờ thực tế
+                    uiState.ntpOffsetMillis?.let { offset ->
+                        val isDriftLarge = abs(offset) > 3000L
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isDriftLarge) Color(0xFFFEF2F2) else Color(0xFFDCFCE7),
+                        ) {
+                            Text(
+                                text = if (isDriftLarge) "⚠️ Lệch ${"%.1f".format(abs(offset) / 1000.0)}s" else "● Chuẩn giờ (${offset}ms)",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDriftLarge) Color(0xFFDC2626) else Color(0xFF15803D),
+                                    fontSize = 11.sp,
+                                ),
+                            )
+                        }
+                    }
                 }
                 Text(
                     text = "${uiState.currentSystemTimeText}${uiState.currentMillisText}",
@@ -265,6 +295,32 @@ fun DashboardScreen(
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF1D4ED8),
                         fontSize = 32.sp,
+                    ),
+                )
+            }
+        }
+
+        // Nút mở nhanh Cài đặt Ngày & Giờ cho máy chưa cấp Device Owner
+        if (!uiState.isDeviceOwner) {
+            OutlinedButton(
+                onClick = { VendorOptimizationHelper.openSystemDateSettings(context) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB)),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Schedule,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Chỉnh giờ thủ công trong Cài đặt Android",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
                     ),
                 )
             }
@@ -327,6 +383,109 @@ fun DashboardScreen(
                         fontSize = 15.sp,
                     ),
                 )
+            }
+        }
+
+        // THẺ THÔNG BÁO KẾT QUẢ THAO TÁC (Chỉ hiện khi người dùng bấm nút Kiểm tra / Đồng bộ ngay)
+        if (uiState.showResultBanner) {
+            uiState.lastSyncResult?.let { result ->
+                val spec = when (result.status) {
+                    SyncStatus.CLOCK_SYNC_SUCCESS -> SyncResultDisplaySpec(
+                        title = "ĐỒNG BỘ THÀNH CÔNG",
+                        message = "Đã cập nhật giờ hệ thống theo máy chủ NTP (${result.postSyncDiffMillis?.let { "Lệch $it ms" } ?: "Đã khớp"})",
+                        icon = Icons.Outlined.CheckCircle,
+                        containerBg = Color(0xFFF0FDF4),
+                        contentColor = Color(0xFF166534),
+                        iconTint = Color(0xFF16A34A),
+                    )
+
+                    SyncStatus.NTP_SUCCESS -> SyncResultDisplaySpec(
+                        title = "KIỂM TRA NTP THÀNH CÔNG",
+                        message = "Máy chủ ${uiState.settings.host}:${uiState.settings.port} kết nối bình thường. Offset: ${result.sample?.offsetMillis ?: 0} ms, RTT: ${result.sample?.roundTripDelayMillis ?: 0} ms",
+                        icon = Icons.Outlined.CheckCircle,
+                        containerBg = Color(0xFFEFF6FF),
+                        contentColor = Color(0xFF1E40AF),
+                        iconTint = Color(0xFF2563EB),
+                    )
+
+                    SyncStatus.NTP_FAILED -> if (!uiState.isLanConnected) {
+                        SyncResultDisplaySpec(
+                            title = "CHƯA KẾT NỐI MẠNG",
+                            message = "Thiết bị chưa kết nối Wi-Fi hoặc LAN. Vui lòng bật kết nối mạng để truy vấn máy chủ NTP.",
+                            icon = Icons.Outlined.Wifi,
+                            containerBg = Color(0xFFFEF2F2),
+                            contentColor = Color(0xFF991B1B),
+                            iconTint = Color(0xFFDC2626),
+                        )
+                    } else {
+                        SyncResultDisplaySpec(
+                            title = "LỖI KẾT NỐI MÁY CHỦ NTP",
+                            message = "Không thể kết nối đến máy chủ ${uiState.settings.host}:${uiState.settings.port}. Vui lòng kiểm tra lại địa chỉ host/port hoặc tường lửa.",
+                            icon = Icons.Outlined.Schedule,
+                            containerBg = Color(0xFFFEF2F2),
+                            contentColor = Color(0xFF991B1B),
+                            iconTint = Color(0xFFDC2626),
+                        )
+                    }
+
+                    SyncStatus.CLOCK_SYNC_DENIED -> SyncResultDisplaySpec(
+                        title = "TỪ CHỐI CẬP NHẬT GIỜ HỆ THỐNG",
+                        message = "Thiết bị chưa được kích hoạt quyền Device Owner để thay đổi giờ hệ thống.",
+                        icon = Icons.Outlined.Lock,
+                        containerBg = Color(0xFFFFFBEB),
+                        contentColor = Color(0xFF92400E),
+                        iconTint = Color(0xFFD97706),
+                    )
+
+                    SyncStatus.CLOCK_SYNC_VERIFY_FAILED -> SyncResultDisplaySpec(
+                        title = "XÁC MINH ĐỒNG BỘ THẤT BẠI",
+                        message = "Thời gian hệ thống sau khi chỉnh vẫn chưa khớp với máy chủ NTP. ${result.message}",
+                        icon = Icons.Outlined.Schedule,
+                        containerBg = Color(0xFFFEF2F2),
+                        contentColor = Color(0xFF991B1B),
+                        iconTint = Color(0xFFDC2626),
+                    )
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = spec.containerBg),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = spec.icon,
+                            contentDescription = null,
+                            tint = spec.iconTint,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = spec.title,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = spec.contentColor,
+                                    fontSize = 13.sp,
+                                    letterSpacing = 0.5.sp,
+                                ),
+                            )
+                            Text(
+                                text = spec.message,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = spec.contentColor.copy(alpha = 0.9f),
+                                    fontSize = 13.sp,
+                                ),
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -622,3 +781,12 @@ private fun StatusBadge(
         )
     }
 }
+
+private data class SyncResultDisplaySpec(
+    val title: String,
+    val message: String,
+    val icon: ImageVector,
+    val containerBg: Color,
+    val contentColor: Color,
+    val iconTint: Color,
+)
